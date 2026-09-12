@@ -34,19 +34,11 @@ def forward(model, ids):
     return hs,logits
 
 def dist_metrics(recipient_logits, donor_logits, patched_logits, donor_token):
-    pr=torch.softmax(recipient_logits.double(),dim=-1)
-    pd=torch.softmax(donor_logits.double(),dim=-1)
-    pp=torch.softmax(patched_logits.double(),dim=-1)
-    eps=1e-12
-    kl_patch_rec=torch.sum(pp*(torch.log(pp+eps)-torch.log(pr+eps))).item()
-    kl_rec_donor=torch.sum(pr*(torch.log(pr+eps)-torch.log(pd+eps))).item()
-    kl_patch_donor=torch.sum(pp*(torch.log(pp+eps)-torch.log(pd+eps))).item()
+    pr=torch.softmax(recipient_logits.double(),dim=-1); pd=torch.softmax(donor_logits.double(),dim=-1); pp=torch.softmax(patched_logits.double(),dim=-1); eps=1e-12
+    kl_patch_rec=torch.sum(pp*(torch.log(pp+eps)-torch.log(pr+eps))).item(); kl_rec_donor=torch.sum(pr*(torch.log(pr+eps)-torch.log(pd+eps))).item(); kl_patch_donor=torch.sum(pp*(torch.log(pp+eps)-torch.log(pd+eps))).item()
     recovery=float(1-kl_patch_donor/kl_rec_donor) if kl_rec_donor>1e-12 else float("nan")
-    m=(pp+pd)/2
-    js=.5*torch.sum(pp*(torch.log(pp+eps)-torch.log(m+eps)))+.5*torch.sum(pd*(torch.log(pd+eps)-torch.log(m+eps)))
-    a=patched_logits-recipient_logits
-    b=donor_logits-recipient_logits
-    cos=torch.dot(a,b)/(torch.linalg.vector_norm(a)*torch.linalg.vector_norm(b)+eps)
+    m=(pp+pd)/2; js=.5*torch.sum(pp*(torch.log(pp+eps)-torch.log(m+eps)))+.5*torch.sum(pd*(torch.log(pd+eps)-torch.log(m+eps)))
+    a=patched_logits-recipient_logits; b=donor_logits-recipient_logits; cos=torch.dot(a,b)/(torch.linalg.vector_norm(a)*torch.linalg.vector_norm(b)+eps)
     return {"intervention_kl":kl_patch_rec,"kl_recipient_to_donor":kl_rec_donor,"kl_patched_to_donor":kl_patch_donor,"recovery":recovery,"js_to_donor":float(js.item()),"logit_direction_cosine":float(cos.item()),"donor_token_prob_recipient":float(pr[donor_token].item()),"donor_token_prob_patched":float(pp[donor_token].item()),"donor_token_prob_donor":float(pd[donor_token].item()),"donor_token_prob_gain":float((pp[donor_token]-pr[donor_token]).item())}
 
 @torch.no_grad()
@@ -61,19 +53,16 @@ def patched_logits(model, ids, layer_idx, donor_state):
     finally: h.remove()
 
 def run(a):
-    device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("device=",device)
+    device=torch.device("cuda" if torch.cuda.is_available() else "cpu"); print("device=",device)
     if device.type=="cuda": print("gpu=",torch.cuda.get_device_name(0))
-    tok=GPT2TokenizerFast.from_pretrained(a.model)
-    model=GPT2LMHeadModel.from_pretrained(a.model).to(device).eval()
+    tok=GPT2TokenizerFast.from_pretrained(a.model); model=GPT2LMHeadModel.from_pretrained(a.model).to(device).eval()
     prompts=[x.strip() for x in Path(a.prompts).read_text(encoding="utf-8").splitlines() if x.strip()]
     if a.max_prompts: prompts=prompts[:a.max_prompts]
     rows=[]
     for pi,prompt in enumerate(prompts):
         base=tok(prompt,return_tensors="pt")["input_ids"].to(device)
         for seed in a.seeds:
-            pair_id=f"p{pi:03d}_s{seed:03d}"; rng=np.random.default_rng(seed); eps=rng.normal(size=a.tokens)
-            trajectories={}
+            pair_id=f"p{pi:03d}_s{seed:03d}"; rng=np.random.default_rng(seed); eps=rng.normal(size=a.tokens); trajectories={}
             for name,rho in [("IID",0.0)]+[(f"AR{rho:g}",rho) for rho in a.rhos if rho!=0]:
                 u=ar1_u(eps,rho); ids=base.clone(); states=[]; logits_list=[]; tokens=[]
                 for t in range(a.tokens):
@@ -90,10 +79,9 @@ def run(a):
                         for layer in a.layers:
                             donor_state=torch.tensor(donor["states"][t,layer-1],device=device); ids=base.clone(); toks=recipient["tokens"][:t]
                             if len(toks): ids=torch.cat([ids,torch.tensor(toks[None,:],device=device)],dim=1)
-                            patch=patched_logits(model,ids,layer,donor_state)
-                            m=dist_metrics(torch.tensor(recipient["logits"][t],device=device),torch.tensor(donor["logits"][t],device=device),patch,int(donor["tokens"][t]))
+                            patch=patched_logits(model,ids,layer,donor_state); m=dist_metrics(torch.tensor(recipient["logits"][t],device=device),torch.tensor(donor["logits"][t],device=device),patch,int(donor["tokens"][t]))
                             rows.append({"pair_id":pair_id,"prompt_idx":pi,"seed":seed,"rho":rho,"layer":layer,"t":t,"direction":direction,"history_match":bool(history_same),"donor_token":int(donor["tokens"][t]),"recipient_token":int(recipient["tokens"][t]),**m})
     np.savez_compressed(a.out,rows=np.array(rows,dtype=object)); meta={"model":a.model,"tokens":a.tokens,"temperature":a.temperature,"top_p":a.top_p,"rhos":a.rhos,"layers":a.layers,"steps":a.steps,"explicit_pairing":True,"common_gaussian_innovations":True}; Path(a.meta).write_text(json.dumps(meta,indent=2)); print("saved",a.out,"measurements=",len(rows))
 
 if __name__=="__main__":
-    p=argparse.ArgumentParser(); p.add_argument("--prompts",required=True); p.add_argument("--out",required=True); p.add_argument("--meta",default="phaseII_full_metadata.json"); p.add_argument("--model",default="gpt2"); p.add_argument("--tokens",type=int,default=40); p.add_argument("--temperature",type=float,default=1.0); p.add_argument("--top-p",type=float,default=.9); p.add_argument("--rhos",nargs="+",type=float,default=[.25,.5,.75,.9]); p.add_argument("--layers",nargs="+",type=int,default=[7,8,9,10]); p.add_argument("--steps",nargs="+",type=int,default=[5,10,15,20,25,30,35,39]); p.add_argument("--seeds",nargs="+",type=int,default=list(range(10))); p.add_argument("--max-prompts",type=int,default=None); run(p.parse_args())
+    p=argparse.ArgumentParser(); p.add_argument("--prompts",required=True); p.add_argument("--out",required=True); p.add_argument("--meta",default="phaseII_full_metadata.json"); p.add_argument("--model",default="gpt2"); p.add_argument("--tokens",type=int,default=40); p.add_argument("--temperature",type=float,default=1.0); p.add_argument("--top-p",nargs="?",type=float,default=.9); p.add_argument("--rhos",nargs="+",type=float,default=[.25,.5,.75,.9]); p.add_argument("--layers",nargs="+",type=int,default=[8,9,10]); p.add_argument("--steps",nargs="+",type=int,default=[5,10,15,20,25,30,35,39]); p.add_argument("--seeds",nargs="+",type=int,default=list(range(10))); p.add_argument("--max-prompts",type=int,default=None); run(p.parse_args())
