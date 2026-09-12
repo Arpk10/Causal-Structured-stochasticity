@@ -5,33 +5,24 @@ import torch
 from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 
 def ar1_u(eps, rho):
-    if rho == 0:
-        z = eps.copy()
+    if rho == 0: z = eps.copy()
     else:
-        z = np.empty_like(eps)
-        z[0] = eps[0]
-        for t in range(1, len(eps)):
-            z[t] = rho*z[t-1] + math.sqrt(1-rho*rho)*eps[t]
+        z = np.empty_like(eps); z[0] = eps[0]
+        for t in range(1, len(eps)): z[t] = rho*z[t-1] + math.sqrt(1-rho*rho)*eps[t]
     return 0.5*(1 + np.vectorize(math.erf)(z/np.sqrt(2)))
 
 def top_p_set(probs, top_p):
-    order=np.argsort(probs)[::-1]
-    sp=probs[order]; c=np.cumsum(sp)
-    keep=c<=top_p
+    order=np.argsort(probs)[::-1]; sp=probs[order]; c=np.cumsum(sp); keep=c<=top_p
     if not np.any(keep): keep[0]=True
     else:
         j=np.argmax(c>top_p)
         if c[j]>top_p: keep[j]=True
-    idx=order[keep]
-    q=probs[idx].astype(np.float64); q/=q.sum()
-    return idx,q
+    idx=order[keep]; q=probs[idx].astype(np.float64); q/=q.sum(); return idx,q
 
 @torch.no_grad()
 def forward(model, ids):
     out=model(input_ids=ids, use_cache=False, output_hidden_states=True)
-    hs=[h[0,-1,:].float() for h in out.hidden_states[1:]]
-    logits=out.logits[0,-1,:].float()
-    return hs,logits
+    return [h[0,-1,:].float() for h in out.hidden_states[1:]], out.logits[0,-1,:].float()
 
 def dist_metrics(recipient_logits, donor_logits, patched_logits, donor_token):
     pr=torch.softmax(recipient_logits.double(),dim=-1); pd=torch.softmax(donor_logits.double(),dim=-1); pp=torch.softmax(patched_logits.double(),dim=-1); eps=1e-12
@@ -48,8 +39,7 @@ def patched_logits(model, ids, layer_idx, donor_state):
             x=out[0].clone(); x[:, -1, :] = donor_state.to(x.device, dtype=x.dtype); return (x,) + out[1:]
         x=out.clone(); x[:, -1, :] = donor_state.to(x.device, dtype=x.dtype); return x
     h=model.transformer.h[layer_idx-1].register_forward_hook(hook)
-    try:
-        out=model(input_ids=ids, use_cache=False); return out.logits[0,-1,:].float()
+    try: return model(input_ids=ids, use_cache=False).logits[0,-1,:].float()
     finally: h.remove()
 
 def run(a):
@@ -68,7 +58,7 @@ def run(a):
                 for t in range(a.tokens):
                     hs,logits=forward(model,ids); probs=torch.softmax(logits.double()/a.temperature,dim=-1).cpu().numpy(); idx,q=top_p_set(probs,a.top_p); k=np.searchsorted(np.cumsum(q),u[t],side="right"); y=int(idx[min(k,len(idx)-1)])
                     states.append(torch.stack(hs).cpu().numpy()); logits_list.append(logits.cpu().numpy()); tokens.append(y); ids=torch.cat([ids,torch.tensor([[y]],device=device)],dim=1)
-                trajectories[name]={"rho":rho,"u":u,"states":np.stack(states),"logits":np.stack(logits_list),"tokens":np.array(tokens)}; print(f"generated {pair_id} {name}")
+                trajectories[name]={"rho":rho,"u":u,"states":np.stack(states),"logits":np.stack(logits_list),"tokens":np.array(tokens)}
             iid=trajectories["IID"]
             for rho in a.rhos:
                 if rho==0: continue
@@ -84,4 +74,4 @@ def run(a):
     np.savez_compressed(a.out,rows=np.array(rows,dtype=object)); meta={"model":a.model,"tokens":a.tokens,"temperature":a.temperature,"top_p":a.top_p,"rhos":a.rhos,"layers":a.layers,"steps":a.steps,"explicit_pairing":True,"common_gaussian_innovations":True}; Path(a.meta).write_text(json.dumps(meta,indent=2)); print("saved",a.out,"measurements=",len(rows))
 
 if __name__=="__main__":
-    p=argparse.ArgumentParser(); p.add_argument("--prompts",required=True); p.add_argument("--out",required=True); p.add_argument("--meta",default="phaseII_full_metadata.json"); p.add_argument("--model",default="gpt2"); p.add_argument("--tokens",type=int,default=40); p.add_argument("--temperature",type=float,default=1.0); p.add_argument("--top-p",nargs="?",type=float,default=.9); p.add_argument("--rhos",nargs="+",type=float,default=[.25,.5,.75,.9]); p.add_argument("--layers",nargs="+",type=int,default=[8,9,10]); p.add_argument("--steps",nargs="+",type=int,default=[5,10,15,20,25,30,35,39]); p.add_argument("--seeds",nargs="+",type=int,default=list(range(10))); p.add_argument("--max-prompts",type=int,default=None); run(p.parse_args())
+    p=argparse.ArgumentParser(); p.add_argument("--prompts",required=True); p.add_argument("--out",required=True); p.add_argument("--meta",default="phaseII_full_metadata.json"); p.add_argument("--model",default="gpt2"); p.add_argument("--tokens",type=int,default=40); p.add_argument("--temperature",type=float,default=1.0); p.add_argument("--top-p",type=float,default=.9); p.add_argument("--rhos",nargs="+",type=float,default=[.25,.5,.75,.9]); p.add_argument("--layers",nargs="+",type=int,default=[8,9,10]); p.add_argument("--steps",nargs="+",type=int,default=[5,10,15,20,25,30,35,39]); p.add_argument("--seeds",nargs="+",type=int,default=list(range(10))); p.add_argument("--max-prompts",type=int,default=None); run(p.parse_args())
