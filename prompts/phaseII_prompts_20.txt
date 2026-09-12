@@ -1,5 +1,20 @@
-# Phase II prompt-set record
-#
-# The exact 20 prompts used for the final analysis are maintained with the
-# experiment record. Populate this file with the canonical prompt list before
-# claiming an independent end-to-end replication from this repository.
+The relationship between quantum mechanics and information theory is
+The future of artificial intelligence depends on
+A useful way to understand complex systems is
+The history of scientific discovery shows that
+One important consequence of climate change is
+The basic principles of economics suggest that
+Human language allows people to
+A mathematical proof begins by
+The structure of a biological ecosystem depends on
+Modern computing has changed the way
+The central challenge in understanding consciousness is
+In statistical mechanics, macroscopic behavior emerges from
+A society can become more resilient when
+The development of transportation has
+One of the most important questions in astronomy is
+Information can be represented in many different forms, including
+The distinction between correlation and causation matters because
+A physical theory becomes especially useful when
+Scientific models are valuable because
+The concept of randomness is important in
