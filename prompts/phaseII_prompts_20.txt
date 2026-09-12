@@ -1,0 +1,5 @@
+# Phase II prompt-set record
+#
+# The exact 20 prompts used for the final analysis are maintained with the
+# experiment record. Populate this file with the canonical prompt list before
+# claiming an independent end-to-end replication from this repository.
