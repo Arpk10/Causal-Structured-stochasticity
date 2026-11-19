@@ -130,3 +130,6 @@ python src/analyze_phaseII_full_v2.py --input data/phaseII_components.npz --out 
 ```
 
 The component capture adds memory and compute overhead. For a first smoke test on constrained hardware, use `--max-prompts 2 --seeds 0 1 --rhos 0.5 --layers 8 9 10 --steps 5 10 15` before running the full design.
+
+
+**Memory note:** attention and MLP activations are captured only for the explicitly selected intervention layers (`--layers`), not all transformer blocks. This keeps the component-localization run tractable on memory-constrained hardware.
