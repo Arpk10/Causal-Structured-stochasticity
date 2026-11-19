@@ -202,7 +202,7 @@ def run(a):
                             ids=base.clone(); toks=recipient["tokens"][:t]
                             if len(toks): ids=torch.cat([ids,torch.tensor(toks[None,:],device=device)],dim=1)
                             for component, key in [("residual","states"),("attention","attention"),("mlp","mlp")]:
-                                component_layer_slot = a.layers.index(layer)
+                                component_layer_slot = sorted(set(a.layers)).index(layer)
                                 state_slot = layer - 1 if component == "residual" else component_layer_slot
                                 donor_state=torch.tensor(donor[key][t,state_slot],device=device)
                                 patch=patched_logits(model,ids,layer,donor_state,component=component)
