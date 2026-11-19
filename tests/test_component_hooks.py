@@ -24,7 +24,7 @@ def test_component_capture_shapes_and_finite_values():
     torch.manual_seed(7)
     model = tiny_gpt2()
     ids = torch.tensor([[1, 2, 3, 4]])
-    residual, attention, mlp, logits = forward_with_components(model, ids)
+    residual, attention, mlp, logits = forward_with_components(model, ids, [1, 2])
 
     assert len(residual) == len(attention) == len(mlp) == 2
     assert all(x.shape == (16,) for x in residual + attention + mlp)
