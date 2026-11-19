@@ -12,12 +12,31 @@ def ar1_u(eps, rho):
     return 0.5*(1 + np.vectorize(math.erf)(z/np.sqrt(2)))
 
 def top_p_set(probs, top_p):
-    order=np.argsort(probs)[::-1]; sp=probs[order]; c=np.cumsum(sp); keep=c<=top_p
-    if not np.any(keep): keep[0]=True
-    else:
-        j=np.argmax(c>top_p)
-        if c[j]>top_p: keep[j]=True
-    idx=order[keep]; q=probs[idx].astype(np.float64); q/=q.sum(); return idx,q
+    """Return the minimal descending-probability prefix with mass >= top_p.
+
+    Exact threshold equality is included, and no additional token is retained.
+    This matches temporal-sampling-correlation's protocol v1.
+    """
+    probs = np.asarray(probs, dtype=np.float64)
+    if probs.ndim != 1 or probs.size == 0:
+        raise ValueError("probs must be a non-empty one-dimensional array.")
+    if not np.isfinite(probs).all() or np.any(probs < 0):
+        raise ValueError("probs must contain finite non-negative values.")
+    if not 0.0 < top_p <= 1.0:
+        raise ValueError("top_p must be in (0, 1].")
+    total = probs.sum()
+    if not np.isclose(total, 1.0, rtol=1e-7, atol=1e-9):
+        raise ValueError("probs must be normalized to sum to one.")
+
+    order = np.argsort(-probs, kind="stable")
+    sorted_probs = probs[order]
+    cumulative = np.cumsum(sorted_probs, dtype=np.float64)
+    last = int(np.searchsorted(cumulative, top_p, side="left"))
+    last = min(last, len(order) - 1)
+    idx = order[: last + 1]
+    q = probs[idx].copy()
+    q /= q.sum()
+    return idx, q
 
 @torch.no_grad()
 def forward(model, ids):
@@ -56,7 +75,7 @@ def run(a):
             for name,rho in [("IID",0.0)]+[(f"AR{rho:g}",rho) for rho in a.rhos if rho!=0]:
                 u=ar1_u(eps,rho); ids=base.clone(); states=[]; logits_list=[]; tokens=[]
                 for t in range(a.tokens):
-                    hs,logits=forward(model,ids); probs=torch.softmax(logits.double()/a.temperature,dim=-1).cpu().numpy(); idx,q=top_p_set(probs,a.top_p); k=np.searchsorted(np.cumsum(q),u[t],side="right"); y=int(idx[min(k,len(idx)-1)])
+                    hs,logits=forward(model,ids); probs=torch.softmax(logits.double()/a.temperature,dim=-1).cpu().numpy(); idx,q=top_p_set(probs,a.top_p); k=np.searchsorted(np.cumsum(q),u[t],side="left"); y=int(idx[min(k,len(idx)-1)])
                     states.append(torch.stack(hs).cpu().numpy()); logits_list.append(logits.cpu().numpy()); tokens.append(y); ids=torch.cat([ids,torch.tensor([[y]],device=device)],dim=1)
                 trajectories[name]={"rho":rho,"u":u,"states":np.stack(states),"logits":np.stack(logits_list),"tokens":np.array(tokens)}
             iid=trajectories["IID"]
