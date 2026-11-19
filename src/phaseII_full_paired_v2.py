@@ -26,6 +26,41 @@ def trajectory_divergence(donor_tokens, recipient_tokens, step):
     return same_history, first, age
 
 
+def paired_state_diagnostics(donor_state, recipient_state, donor_logits, recipient_logits):
+    """Quantify pre-sampling differences for a paired token-prefix position."""
+    donor_state = np.asarray(donor_state, dtype=np.float64)
+    recipient_state = np.asarray(recipient_state, dtype=np.float64)
+    donor_logits = np.asarray(donor_logits, dtype=np.float64)
+    recipient_logits = np.asarray(recipient_logits, dtype=np.float64)
+    if donor_state.shape != recipient_state.shape:
+        raise ValueError("paired states must have identical shapes.")
+    if donor_logits.shape != recipient_logits.shape:
+        raise ValueError("paired logits must have identical shapes.")
+    state_delta = donor_state - recipient_state
+    state_l2 = float(np.linalg.norm(state_delta))
+    state_max_abs = float(np.max(np.abs(state_delta))) if state_delta.size else 0.0
+    logit_delta = donor_logits - recipient_logits
+    logit_max_abs = float(np.max(np.abs(logit_delta))) if logit_delta.size else 0.0
+
+    def softmax(x):
+        x = x - np.max(x)
+        ex = np.exp(x)
+        return ex / ex.sum()
+
+    p = softmax(donor_logits)
+    q = softmax(recipient_logits)
+    midpoint = 0.5 * (p + q)
+    eps = 1e-15
+    js = 0.5 * np.sum(p * np.log((p + eps) / (midpoint + eps)))
+    js += 0.5 * np.sum(q * np.log((q + eps) / (midpoint + eps)))
+    return {
+        "prepatch_state_l2": state_l2,
+        "prepatch_state_max_abs": state_max_abs,
+        "prepatch_logit_max_abs": logit_max_abs,
+        "prepatch_js": float(js),
+    }
+
+
 def top_p_set(probs, top_p):
     """Return the minimal descending-probability prefix with mass >= top_p.
 
@@ -103,10 +138,16 @@ def run(a):
                             donor["tokens"], recipient["tokens"], t
                         )
                         for layer in a.layers:
+                            state_diag = paired_state_diagnostics(
+                                donor["states"][t, layer-1],
+                                recipient["states"][t, layer-1],
+                                donor["logits"][t],
+                                recipient["logits"][t],
+                            )
                             donor_state=torch.tensor(donor["states"][t,layer-1],device=device); ids=base.clone(); toks=recipient["tokens"][:t]
                             if len(toks): ids=torch.cat([ids,torch.tensor(toks[None,:],device=device)],dim=1)
                             patch=patched_logits(model,ids,layer,donor_state); m=dist_metrics(torch.tensor(recipient["logits"][t],device=device),torch.tensor(donor["logits"][t],device=device),patch,int(donor["tokens"][t]))
-                            rows.append({"pair_id":pair_id,"prompt_idx":pi,"seed":seed,"rho":rho,"layer":layer,"t":t,"direction":direction,"history_match":bool(history_same),"first_divergence_step":first_divergence,"divergence_age":divergence_age,"donor_token":int(donor["tokens"][t]),"recipient_token":int(recipient["tokens"][t]),**m})
+                            rows.append({"pair_id":pair_id,"prompt_idx":pi,"seed":seed,"rho":rho,"layer":layer,"t":t,"direction":direction,"history_match":bool(history_same),"first_divergence_step":first_divergence,"divergence_age":divergence_age,"is_first_divergence_step":bool(first_divergence == t),"donor_token":int(donor["tokens"][t]),"recipient_token":int(recipient["tokens"][t]),**state_diag,**m})
     np.savez_compressed(a.out,rows=np.array(rows,dtype=object)); meta={"model":a.model,"tokens":a.tokens,"temperature":a.temperature,"top_p":a.top_p,"rhos":a.rhos,"layers":a.layers,"steps":a.steps,"explicit_pairing":True,"common_gaussian_innovations":True}; Path(a.meta).write_text(json.dumps(meta,indent=2)); print("saved",a.out,"measurements=",len(rows))
 
 if __name__=="__main__":
