@@ -83,13 +83,20 @@ def run(a):
                 if rho==0: continue
                 ar=trajectories[f"AR{rho:g}"]
                 for direction,donor,recipient in [("AR_to_IID",ar,iid),("IID_to_AR",iid,ar)]:
+                    mismatch_steps = np.flatnonzero(donor["tokens"] != recipient["tokens"])
+                    first_divergence = int(mismatch_steps[0]) if len(mismatch_steps) else -1
                     for t in a.steps:
                         history_same=np.array_equal(donor["tokens"][:t],recipient["tokens"][:t])
+                        divergence_age = (
+                            int(t - first_divergence)
+                            if first_divergence >= 0 and first_divergence < t
+                            else 0
+                        )
                         for layer in a.layers:
                             donor_state=torch.tensor(donor["states"][t,layer-1],device=device); ids=base.clone(); toks=recipient["tokens"][:t]
                             if len(toks): ids=torch.cat([ids,torch.tensor(toks[None,:],device=device)],dim=1)
                             patch=patched_logits(model,ids,layer,donor_state); m=dist_metrics(torch.tensor(recipient["logits"][t],device=device),torch.tensor(donor["logits"][t],device=device),patch,int(donor["tokens"][t]))
-                            rows.append({"pair_id":pair_id,"prompt_idx":pi,"seed":seed,"rho":rho,"layer":layer,"t":t,"direction":direction,"history_match":bool(history_same),"donor_token":int(donor["tokens"][t]),"recipient_token":int(recipient["tokens"][t]),**m})
+                            rows.append({"pair_id":pair_id,"prompt_idx":pi,"seed":seed,"rho":rho,"layer":layer,"t":t,"direction":direction,"history_match":bool(history_same),"first_divergence_step":first_divergence,"divergence_age":divergence_age,"donor_token":int(donor["tokens"][t]),"recipient_token":int(recipient["tokens"][t]),**m})
     np.savez_compressed(a.out,rows=np.array(rows,dtype=object)); meta={"model":a.model,"tokens":a.tokens,"temperature":a.temperature,"top_p":a.top_p,"rhos":a.rhos,"layers":a.layers,"steps":a.steps,"explicit_pairing":True,"common_gaussian_innovations":True}; Path(a.meta).write_text(json.dumps(meta,indent=2)); print("saved",a.out,"measurements=",len(rows))
 
 if __name__=="__main__":
