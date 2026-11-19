@@ -2,20 +2,85 @@ import argparse
 import numpy as np
 import pandas as pd
 
-def main(a):
-    d=np.load(a.input,allow_pickle=True)
-    df=pd.DataFrame(list(d["rows"]))
-    keys=["pair_id","prompt_idx","seed","rho","direction","layer"]
-    agg=df.groupby(keys).agg(recovery=("recovery","mean"),intervention_kl=("intervention_kl","mean"),js_to_donor=("js_to_donor","mean"),logit_cosine=("logit_direction_cosine","mean"),donor_token_gain=("donor_token_prob_gain","mean"),history_match_rate=("history_match","mean"),n=("t","count")).reset_index()
-    agg.to_csv(a.out,index=False)
-    print("\n=== Pair-level means ===")
-    print(agg.groupby(["direction","layer"])[["recovery","intervention_kl","js_to_donor","logit_cosine","donor_token_gain"]].mean().to_string())
-    print("\n=== Recovery by rho and layer ===")
-    print(agg.groupby(["direction","rho","layer"])["recovery"].mean().to_string())
-    print("\n=== Intervention KL by rho and layer ===")
-    print(agg.groupby(["direction","rho","layer"])["intervention_kl"].mean().to_string())
-    print("\n=== History-match diagnostics ===")
-    print(agg.groupby(["direction","rho"])["history_match_rate"].mean().to_string())
 
-if __name__=="__main__":
-    p=argparse.ArgumentParser(); p.add_argument("--input",required=True); p.add_argument("--out",required=True); main(p.parse_args())
+METRICS = [
+    "recovery",
+    "intervention_kl",
+    "js_to_donor",
+    "logit_direction_cosine",
+    "donor_token_prob_gain",
+]
+
+
+def main(a):
+    data = np.load(a.input, allow_pickle=True)
+    df = pd.DataFrame(list(data["rows"]))
+
+    keys = ["pair_id", "prompt_idx", "seed", "rho", "direction", "layer"]
+    agg = (
+        df.groupby(keys)
+        .agg(
+            recovery=("recovery", "mean"),
+            intervention_kl=("intervention_kl", "mean"),
+            js_to_donor=("js_to_donor", "mean"),
+            logit_cosine=("logit_direction_cosine", "mean"),
+            donor_token_gain=("donor_token_prob_gain", "mean"),
+            history_match_rate=("history_match", "mean"),
+            n=("t", "count"),
+        )
+        .reset_index()
+    )
+    agg.to_csv(a.out, index=False)
+
+    print("\n=== Pair-level means ===")
+    print(
+        agg.groupby(["direction", "layer"])[
+            ["recovery", "intervention_kl", "js_to_donor", "logit_cosine", "donor_token_gain"]
+        ].mean().to_string()
+    )
+    print("\n=== Recovery by rho and layer ===")
+    print(agg.groupby(["direction", "rho", "layer"])["recovery"].mean().to_string())
+    print("\n=== Intervention KL by rho and layer ===")
+    print(agg.groupby(["direction", "rho", "layer"])["intervention_kl"].mean().to_string())
+
+    print("\n=== History-match diagnostics ===")
+    print(agg.groupby(["direction", "rho"])["history_match_rate"].mean().to_string())
+
+    required = {"first_divergence_step", "divergence_age", "history_match"}
+    if required.issubset(df.columns):
+        print("\n=== Patch effects conditional on token-history status ===")
+        history = (
+            df.groupby(["history_match", "direction", "rho", "layer"])[METRICS]
+            .agg(["mean", "count"])
+        )
+        print(history.to_string())
+
+        divergent = df.loc[~df["history_match"]].copy()
+        if not divergent.empty:
+            print("\n=== Patch effects by time since first token divergence ===")
+            age = (
+                divergent.groupby(["divergence_age", "direction", "rho", "layer"])[METRICS]
+                .agg(["mean", "count"])
+            )
+            print(age.to_string())
+
+        print("\n=== First-divergence distribution ===")
+        divergence = (
+            df[["pair_id", "rho", "direction", "first_divergence_step"]]
+            .drop_duplicates()
+            .groupby(["direction", "rho"])["first_divergence_step"]
+            .agg(["count", "mean", "min", "max"])
+        )
+        print(divergence.to_string())
+    else:
+        print(
+            "\nNOTE: input predates divergence diagnostics; "
+            "rerun Phase II generation to obtain history-stratified results."
+        )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--out", required=True)
+    main(parser.parse_args())
