@@ -125,7 +125,7 @@ These interventions are not additive decompositions: attention and MLP outputs i
 Run the updated generator and analysis with:
 
 ```bash
-python src/phaseII_full_paired_v2.py --prompts prompts/phaseII_prompts_20.txt --out data/phaseII_components.npz --meta results/phaseII_components_metadata.json
+python src/phaseII_full_paired_v2.py --prompts prompts/phaseII_prompts_20.txt --out data/phaseII_components.npz --meta phaseII_components_metadata.json
 python src/analyze_phaseII_full_v2.py --input data/phaseII_components.npz --out results/phaseII_components_pair_level.csv
 ```
 
