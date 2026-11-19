@@ -133,7 +133,12 @@ def run(a):
                 if rho==0: continue
                 ar=trajectories[f"AR{rho:g}"]
                 for direction,donor,recipient in [("AR_to_IID",ar,iid),("IID_to_AR",iid,ar)]:
-                    for t in a.steps:
+                    mismatch_steps = np.flatnonzero(donor["tokens"] != recipient["tokens"])
+                    first_divergence_for_pair = int(mismatch_steps[0]) if len(mismatch_steps) else -1
+                    eval_steps = set(a.steps)
+                    if 0 <= first_divergence_for_pair < a.tokens:
+                        eval_steps.add(first_divergence_for_pair)
+                    for t in sorted(eval_steps):
                         history_same, first_divergence, divergence_age = trajectory_divergence(
                             donor["tokens"], recipient["tokens"], t
                         )
