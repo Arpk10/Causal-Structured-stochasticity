@@ -38,15 +38,17 @@ def test_patching_own_component_activation_is_identity():
     ids = torch.tensor([[1, 2, 3, 4]])
     residual, attention, mlp, logits = forward_with_components(model, ids)
 
-    for layer_idx, component_values in enumerate(
-        (residual, attention, mlp), start=1
-    ):
-        component = ("residual", "attention", "mlp")[layer_idx - 1]
-        patched = patched_logits(
-            model, ids, layer_idx, component_values[layer_idx - 1],
-            component=component,
-        )
-        torch.testing.assert_close(patched, logits, rtol=1e-5, atol=1e-6)
+    for layer_idx in (1, 2):
+        for component, component_values in (
+            ("residual", residual),
+            ("attention", attention),
+            ("mlp", mlp),
+        ):
+            patched = patched_logits(
+                model, ids, layer_idx, component_values[layer_idx - 1],
+                component=component,
+            )
+            torch.testing.assert_close(patched, logits, rtol=1e-5, atol=1e-6)
 
 
 def test_hooks_are_removed_after_forward_and_patch():
