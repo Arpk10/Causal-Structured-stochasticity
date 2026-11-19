@@ -16,7 +16,9 @@ def main(a):
     data = np.load(a.input, allow_pickle=True)
     df = pd.DataFrame(list(data["rows"]))
 
-    keys = ["pair_id", "prompt_idx", "seed", "rho", "direction", "layer"]
+    if "patch_component" not in df.columns:
+        df["patch_component"] = "residual"
+    keys = ["pair_id", "prompt_idx", "seed", "rho", "direction", "layer", "patch_component"]
     agg = (
         df.groupby(keys)
         .agg(
@@ -34,7 +36,7 @@ def main(a):
 
     print("\n=== Pair-level means ===")
     print(
-        agg.groupby(["direction", "layer"])[
+        agg.groupby(["patch_component", "direction", "layer"])[
             ["recovery", "intervention_kl", "js_to_donor", "logit_cosine", "donor_token_gain"]
         ].mean().to_string()
     )
@@ -50,7 +52,7 @@ def main(a):
     if required.issubset(df.columns):
         print("\n=== Patch effects conditional on token-history status ===")
         history = (
-            df.groupby(["history_match", "direction", "rho", "layer"])[METRICS]
+            df.groupby(["patch_component", "history_match", "direction", "rho", "layer"])[METRICS]
             .agg(["mean", "count"])
         )
         print(history.to_string())
@@ -59,16 +61,16 @@ def main(a):
         if not divergent.empty:
             print("\n=== Patch effects by time since first token divergence ===")
             age = (
-                divergent.groupby(["divergence_age", "direction", "rho", "layer"])[METRICS]
+                divergent.groupby(["patch_component", "divergence_age", "direction", "rho", "layer"])[METRICS]
                 .agg(["mean", "count"])
             )
             print(age.to_string())
 
         print("\n=== First-divergence distribution ===")
         divergence = (
-            df[["pair_id", "rho", "direction", "first_divergence_step"]]
+            df[["pair_id", "rho", "direction", "patch_component", "first_divergence_step"]]
             .drop_duplicates()
-            .groupby(["direction", "rho"])["first_divergence_step"]
+            .groupby(["patch_component", "direction", "rho"])["first_divergence_step"]
             .agg(["count", "mean", "min", "max"])
         )
         print(divergence.to_string())
@@ -76,7 +78,7 @@ def main(a):
         first = df.loc[df["is_first_divergence_step"]]
         if not first.empty:
             print(
-                first.groupby(["direction", "rho", "layer"])[
+                first.groupby(["patch_component", "direction", "rho", "layer"])[
                     ["prepatch_state_l2", "prepatch_state_max_abs",
                      "prepatch_logit_max_abs", "prepatch_js"]
                 ].agg(["mean", "max", "count"]).to_string()
