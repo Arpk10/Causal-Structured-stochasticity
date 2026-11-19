@@ -41,12 +41,12 @@ def main(a):
         ].mean().to_string()
     )
     print("\n=== Recovery by rho and layer ===")
-    print(agg.groupby(["direction", "rho", "layer"])["recovery"].mean().to_string())
+    print(agg.groupby(["patch_component", "direction", "rho", "layer"])["recovery"].mean().to_string())
     print("\n=== Intervention KL by rho and layer ===")
-    print(agg.groupby(["direction", "rho", "layer"])["intervention_kl"].mean().to_string())
+    print(agg.groupby(["patch_component", "direction", "rho", "layer"])["intervention_kl"].mean().to_string())
 
     print("\n=== History-match diagnostics ===")
-    print(agg.groupby(["direction", "rho"])["history_match_rate"].mean().to_string())
+    print(agg.groupby(["patch_component", "direction", "rho"])["history_match_rate"].mean().to_string())
 
     required = {"first_divergence_step", "divergence_age", "history_match"}
     if required.issubset(df.columns):
