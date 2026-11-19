@@ -84,3 +84,18 @@ The principal claim is causal and trajectory-level: external temporal structure 
 ## License
 
 MIT. See `LICENSE`.
+
+
+## Token-history confounding diagnostics
+
+The Phase II generator records, for every donor-recipient intervention:
+
+- whether generated token histories agree strictly before the patched position;
+- the first generated-token position at which paired trajectories diverge (`-1` if they never diverge);
+- the number of positions elapsed since first divergence at the intervention point.
+
+The analysis script reports patch metrics separately for matched and divergent histories, and stratifies divergent-history measurements by divergence age. These are diagnostic strata, not independent samples: repeated positions and layers remain nested within the same prompt/seed pair.
+
+**Interpretation constraint:** a donor-state patch after token-history divergence can transfer information about the donor's different linguistic context. A large patching effect in that stratum alone does not identify a representation of the external stochastic source. The matched-history stratum is informative but may be sparse because distinct sampling uniforms can select the same token only by chance. An empty or small matched-history stratum is not evidence of no source effect.
+
+The new fields are produced by the updated generator. Older NPZ files do not contain them and cannot support this stratified analysis; regenerate the experiment to obtain these diagnostics.
