@@ -84,3 +84,52 @@ The principal claim is causal and trajectory-level: external temporal structure 
 ## License
 
 MIT. See `LICENSE`.
+
+
+## Token-history confounding diagnostics
+
+The Phase II generator records, for every donor-recipient intervention:
+
+- whether generated token histories agree strictly before the patched position;
+- the first generated-token position at which paired trajectories diverge (`-1` if they never diverge);
+- the number of positions elapsed since first divergence at the intervention point.
+
+The analysis script reports patch metrics separately for matched and divergent histories, and stratifies divergent-history measurements by divergence age. These are diagnostic strata, not independent samples: repeated positions and layers remain nested within the same prompt/seed pair.
+
+**Interpretation constraint:** a donor-state patch after token-history divergence can transfer information about the donor's different linguistic context. A large patching effect in that stratum alone does not identify a representation of the external stochastic source. The matched-history stratum is informative but may be sparse because distinct sampling uniforms can select the same token only by chance. An empty or small matched-history stratum is not evidence of no source effect.
+
+The new fields are produced by the updated generator. Older NPZ files do not contain them and cannot support this stratified analysis; regenerate the experiment to obtain these diagnostics.
+
+
+## Matched-prefix negative control
+
+GPT-2 receives sampled token IDs, not the external uniforms directly. Consequently, if two paired trajectories have identical token prefixes before position t, their deterministic pre-sampling hidden states and logits at t should agree up to numerical precision, even if the external source histories differ. At the first token position where the trajectories choose different tokens, the pre-sampling state is still computed from the shared prefix and should therefore remain equal; divergence in model state can only arise at later positions after the different token has entered the context.
+
+The generator now records per-layer pre-patching state distances and pre-sampling logit/JS distances for each paired position, and flags the first token-divergence position. The analysis reports these quantities at first divergence and by history-match status. This is a negative-control/invariance check, not evidence that the model internally represents the random source. Nonzero differences at the first divergence position would indicate a pipeline, pairing, precision, or nondeterminism issue to investigate.
+
+This control is deliberately distinct from activation patching: it tests whether source histories can alter GPT-2's state before they have altered its token context. Since the source is not an explicit model input, a direct state effect with identical token prefixes is not expected under this setup.
+
+
+## Component-localization experiment: residual vs attention vs MLP
+
+The Phase II generator now captures final-token outputs from each GPT-2 block's attention and MLP submodules in addition to the block residual output. At each selected intervention position and layer, it performs three separate donor-to-recipient patches:
+
+1. `residual`: replace the block output at the final token position;
+2. `attention`: replace the attention-module output before the block's residual addition;
+3. `mlp`: replace the MLP-module output before the block's residual addition.
+
+The resulting rows are labelled by `patch_component`; analysis aggregation keeps the three intervention types separate. The metadata records the component list and hook location.
+
+These interventions are not additive decompositions: attention and MLP outputs interact through the block computation and downstream nonlinearities. A larger component-specific effect is evidence that the intervention at that component is more influential under this patching setup, not proof that the component uniquely stores source-history information. Interpret results with matched-history status and divergence age, and use prompt/seed-paired inference rather than treating layers, positions, or component patches as independent observations.
+
+Run the updated generator and analysis with:
+
+```bash
+python src/phaseII_full_paired_v2.py --prompts prompts/phaseII_prompts_20.txt --out data/phaseII_components.npz --meta phaseII_components_metadata.json
+python src/analyze_phaseII_full_v2.py --input data/phaseII_components.npz --out results/phaseII_components_pair_level.csv
+```
+
+The component capture adds memory and compute overhead. For a first smoke test on constrained hardware, use `--max-prompts 2 --seeds 0 1 --rhos 0.5 --layers 8 9 10 --steps 5 10 15` before running the full design.
+
+
+**Memory note:** attention and MLP activations are captured only for the explicitly selected intervention layers (`--layers`), not all transformer blocks. This keeps the component-localization run tractable on memory-constrained hardware.
