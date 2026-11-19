@@ -72,6 +72,24 @@ def main(a):
             .agg(["count", "mean", "min", "max"])
         )
         print(divergence.to_string())
+        print("\n=== Pre-sampling state invariance at first divergence ===")
+        first = df.loc[df["is_first_divergence_step"]]
+        if not first.empty:
+            print(
+                first.groupby(["direction", "rho", "layer"])[
+                    ["prepatch_state_l2", "prepatch_state_max_abs",
+                     "prepatch_logit_max_abs", "prepatch_js"]
+                ].agg(["mean", "max", "count"]).to_string()
+            )
+        else:
+            print("No first-divergence positions occur among selected intervention steps.")
+
+        print("\n=== Pre-sampling state differences by history status ===")
+        print(
+            df.groupby(["history_match", "direction", "rho", "layer"])[
+                ["prepatch_state_l2", "prepatch_logit_max_abs", "prepatch_js"]
+            ].agg(["mean", "count"]).to_string()
+        )
     else:
         print(
             "\nNOTE: input predates divergence diagnostics; "
