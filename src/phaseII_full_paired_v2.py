@@ -95,8 +95,11 @@ def forward(model, ids):
 
 
 @torch.no_grad()
-def forward_with_components(model, ids):
-    """Return final-position residual, attention, and MLP activations by block."""
+def forward_with_components(model, ids, capture_layers):
+    """Capture final-position attention and MLP outputs only at selected 1-based layers."""
+    capture_layers = tuple(sorted(set(int(x) for x in capture_layers)))
+    if not capture_layers or any(x < 1 or x > len(model.transformer.h) for x in capture_layers):
+        raise ValueError("capture_layers must contain valid 1-based GPT-2 block indices.")
     captured = {"attn": {}, "mlp": {}}
     handles = []
 
@@ -107,8 +110,9 @@ def forward_with_components(model, ids):
         return hook
 
     for index, block in enumerate(model.transformer.h):
-        handles.append(block.attn.register_forward_hook(make_hook("attn", index)))
-        handles.append(block.mlp.register_forward_hook(make_hook("mlp", index)))
+        if index + 1 in capture_layers:
+            handles.append(block.attn.register_forward_hook(make_hook("attn", index)))
+            handles.append(block.mlp.register_forward_hook(make_hook("mlp", index)))
     try:
         out = model(input_ids=ids, use_cache=False, output_hidden_states=True)
     finally:
@@ -116,8 +120,8 @@ def forward_with_components(model, ids):
             handle.remove()
 
     residual = [h[0, -1, :].detach().float() for h in out.hidden_states[1:]]
-    attention = [captured["attn"][i] for i in range(len(model.transformer.h))]
-    mlp = [captured["mlp"][i] for i in range(len(model.transformer.h))]
+    attention = [captured["attn"][i - 1] for i in capture_layers]
+    mlp = [captured["mlp"][i - 1] for i in capture_layers]
     return residual, attention, mlp, out.logits[0, -1, :].detach().float()
 
 def dist_metrics(recipient_logits, donor_logits, patched_logits, donor_token):
@@ -168,12 +172,12 @@ def run(a):
             for name,rho in [("IID",0.0)]+[(f"AR{rho:g}",rho) for rho in a.rhos if rho!=0]:
                 u=ar1_u(eps,rho); ids=base.clone(); states=[]; attention_states=[]; mlp_states=[]; logits_list=[]; tokens=[]
                 for t in range(a.tokens):
-                    hs, attn, mlp, logits=forward_with_components(model,ids); probs=torch.softmax(logits.double()/a.temperature,dim=-1).cpu().numpy(); idx,q=top_p_set(probs,a.top_p); k=np.searchsorted(np.cumsum(q),u[t],side="left"); y=int(idx[min(k,len(idx)-1)])
+                    hs, attn, mlp, logits=forward_with_components(model,ids,a.layers); probs=torch.softmax(logits.double()/a.temperature,dim=-1).cpu().numpy(); idx,q=top_p_set(probs,a.top_p); k=np.searchsorted(np.cumsum(q),u[t],side="left"); y=int(idx[min(k,len(idx)-1)])
                     states.append(torch.stack(hs).cpu().numpy())
                     attention_states.append(torch.stack(attn).cpu().numpy())
                     mlp_states.append(torch.stack(mlp).cpu().numpy())
                     logits_list.append(logits.cpu().numpy()); tokens.append(y); ids=torch.cat([ids,torch.tensor([[y]],device=device)],dim=1)
-                trajectories[name]={"rho":rho,"u":u,"states":np.stack(states),"attention":np.stack(attention_states),"mlp":np.stack(mlp_states),"logits":np.stack(logits_list),"tokens":np.array(tokens)}
+                trajectories[name]={"rho":rho,"u":u,"states":np.stack(states),"attention":np.stack(attention_states),"mlp":np.stack(mlp_states),"component_layer_indices":list(a.layers),"logits":np.stack(logits_list),"tokens":np.array(tokens)}
             iid=trajectories["IID"]
             for rho in a.rhos:
                 if rho==0: continue
@@ -198,7 +202,9 @@ def run(a):
                             ids=base.clone(); toks=recipient["tokens"][:t]
                             if len(toks): ids=torch.cat([ids,torch.tensor(toks[None,:],device=device)],dim=1)
                             for component, key in [("residual","states"),("attention","attention"),("mlp","mlp")]:
-                                donor_state=torch.tensor(donor[key][t,layer-1],device=device)
+                                component_layer_slot = a.layers.index(layer)
+                                state_slot = layer - 1 if component == "residual" else component_layer_slot
+                                donor_state=torch.tensor(donor[key][t,state_slot],device=device)
                                 patch=patched_logits(model,ids,layer,donor_state,component=component)
                                 m=dist_metrics(torch.tensor(recipient["logits"][t],device=device),torch.tensor(donor["logits"][t],device=device),patch,int(donor["tokens"][t]))
                                 rows.append({"pair_id":pair_id,"prompt_idx":pi,"seed":seed,"rho":rho,"layer":layer,"t":t,"direction":direction,"patch_component":component,"history_match":bool(history_same),"first_divergence_step":first_divergence,"divergence_age":divergence_age,"is_first_divergence_step":bool(first_divergence == t),"donor_token":int(donor["tokens"][t]),"recipient_token":int(recipient["tokens"][t]),**state_diag,**m})
