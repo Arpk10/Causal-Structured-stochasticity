@@ -99,3 +99,12 @@ The analysis script reports patch metrics separately for matched and divergent h
 **Interpretation constraint:** a donor-state patch after token-history divergence can transfer information about the donor's different linguistic context. A large patching effect in that stratum alone does not identify a representation of the external stochastic source. The matched-history stratum is informative but may be sparse because distinct sampling uniforms can select the same token only by chance. An empty or small matched-history stratum is not evidence of no source effect.
 
 The new fields are produced by the updated generator. Older NPZ files do not contain them and cannot support this stratified analysis; regenerate the experiment to obtain these diagnostics.
+
+
+## Matched-prefix negative control
+
+GPT-2 receives sampled token IDs, not the external uniforms directly. Consequently, if two paired trajectories have identical token prefixes before position t, their deterministic pre-sampling hidden states and logits at t should agree up to numerical precision, even if the external source histories differ. At the first token position where the trajectories choose different tokens, the pre-sampling state is still computed from the shared prefix and should therefore remain equal; divergence in model state can only arise at later positions after the different token has entered the context.
+
+The generator now records per-layer pre-patching state distances and pre-sampling logit/JS distances for each paired position, and flags the first token-divergence position. The analysis reports these quantities at first divergence and by history-match status. This is a negative-control/invariance check, not evidence that the model internally represents the random source. Nonzero differences at the first divergence position would indicate a pipeline, pairing, precision, or nondeterminism issue to investigate.
+
+This control is deliberately distinct from activation patching: it tests whether source histories can alter GPT-2's state before they have altered its token context. Since the source is not an explicit model input, a direct state effect with identical token prefixes is not expected under this setup.
