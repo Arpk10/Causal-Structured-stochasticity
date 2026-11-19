@@ -11,6 +11,21 @@ def ar1_u(eps, rho):
         for t in range(1, len(eps)): z[t] = rho*z[t-1] + math.sqrt(1-rho*rho)*eps[t]
     return 0.5*(1 + np.vectorize(math.erf)(z/np.sqrt(2)))
 
+def trajectory_divergence(donor_tokens, recipient_tokens, step):
+    """Describe pre-intervention token-history agreement and divergence age."""
+    donor_tokens = np.asarray(donor_tokens)
+    recipient_tokens = np.asarray(recipient_tokens)
+    if donor_tokens.shape != recipient_tokens.shape:
+        raise ValueError("paired token trajectories must have identical shapes.")
+    if not 0 <= step <= len(donor_tokens):
+        raise ValueError("step must be within the trajectory.")
+    mismatches = np.flatnonzero(donor_tokens != recipient_tokens)
+    first = int(mismatches[0]) if len(mismatches) else -1
+    same_history = bool(np.array_equal(donor_tokens[:step], recipient_tokens[:step]))
+    age = int(step - first) if first >= 0 and first < step else 0
+    return same_history, first, age
+
+
 def top_p_set(probs, top_p):
     """Return the minimal descending-probability prefix with mass >= top_p.
 
@@ -83,14 +98,9 @@ def run(a):
                 if rho==0: continue
                 ar=trajectories[f"AR{rho:g}"]
                 for direction,donor,recipient in [("AR_to_IID",ar,iid),("IID_to_AR",iid,ar)]:
-                    mismatch_steps = np.flatnonzero(donor["tokens"] != recipient["tokens"])
-                    first_divergence = int(mismatch_steps[0]) if len(mismatch_steps) else -1
                     for t in a.steps:
-                        history_same=np.array_equal(donor["tokens"][:t],recipient["tokens"][:t])
-                        divergence_age = (
-                            int(t - first_divergence)
-                            if first_divergence >= 0 and first_divergence < t
-                            else 0
+                        history_same, first_divergence, divergence_age = trajectory_divergence(
+                            donor["tokens"], recipient["tokens"], t
                         )
                         for layer in a.layers:
                             donor_state=torch.tensor(donor["states"][t,layer-1],device=device); ids=base.clone(); toks=recipient["tokens"][:t]
